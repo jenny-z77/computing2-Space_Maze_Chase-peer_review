@@ -1,8 +1,10 @@
-import {
+import gameApi from "./game.js";
+
+const {
   createGame,
   nextTurn,
   getGameState
-} from "./game.js";
+} = gameApi;
 
 const TOTAL_COOKIES = 4;
 const BOARD_SIZE = 8;
@@ -208,7 +210,10 @@ function startCountdown() {
 const UNLOCK_KEY = "spaceMaze_maxUnlocked";
 
 function getMaxUnlocked() {
-  return parseInt(localStorage.getItem(UNLOCK_KEY) || "0", 10);
+  const savedLevel = parseInt(localStorage.getItem(UNLOCK_KEY) || "0", 10);
+  return Number.isFinite(savedLevel)
+    ? Math.min(Math.max(savedLevel, 0), LEVELS.length - 1)
+    : 0;
 }
 
 function saveUnlock(levelIndex) {
@@ -220,7 +225,15 @@ function saveUnlock(levelIndex) {
 const SCORES_KEY = "spaceMaze_scores";
 
 function getLevelScores() {
-  return JSON.parse(localStorage.getItem(SCORES_KEY) || "{}");
+  try {
+    const scores = JSON.parse(localStorage.getItem(SCORES_KEY) || "{}");
+    return scores && typeof scores === "object" && !Array.isArray(scores)
+      ? scores
+      : {};
+  } catch {
+    localStorage.removeItem(SCORES_KEY);
+    return {};
+  }
 }
 
 function saveLevelScore(levelIndex, cookies) {
@@ -408,10 +421,6 @@ function renderStatus() {
       if (!overlayEl.classList.contains("is-visible")) {
         levelUpSound.currentTime = 0;
         levelUpSound.play().catch(() => {});
-      }
-      if (!overlayEl.classList.contains("is-visible")) {
-        levelUpSound.currentTime = 0;
-        levelUpSound.play().catch(() => {});
         startCountdown();
       }
       overlayEl.classList.add("is-visible");
@@ -470,12 +479,22 @@ const KEY_DIRECTION = {
 document.addEventListener("keydown", handleKey);
 
 function handleKey(event) {
-  startAudio();
+  if (isGameInputBlocked()) {
+    if (KEY_DIRECTION[event.key]) event.preventDefault();
+    return;
+  }
 
   // Level select
   if (event.key === "s" || event.key === "S") {
     clearCountdown();
     showLevelSelect();
+    return;
+  }
+
+  // Secret ending (Q key)
+  if ((event.key === "q" || event.key === "Q") && game.status === "win") {
+    clearCountdown();
+    showOutro();
     return;
   }
 
@@ -507,6 +526,7 @@ function handleKey(event) {
 
   // Prevent page scrolling with arrow keys
   event.preventDefault();
+  startAudio();
 
   const cookiesBefore = game.collectedCookies;
   const livesBefore = game.lives;
@@ -523,6 +543,7 @@ function handleKey(event) {
 
 // Reset button
 resetBtn.addEventListener("click", () => {
+  clearCountdown();
   game = createGameForLevel(currentLevel);
   randomChar();
   render();
@@ -581,6 +602,13 @@ const OUTRO_LINES = [
 
 const outroMusic = new Audio("assets/movie/newjeans-complete.mp3");
 outroMusic.volume = 0.3;
+
+function isGameInputBlocked() {
+  const introVisible = !introScreen.classList.contains("is-hidden");
+  const outroVisible = !outroScreen.classList.contains("is-hidden");
+  const levelSelectVisible = levelSelectEl.classList.contains("is-visible");
+  return introVisible || outroVisible || levelSelectVisible;
+}
 
 function endOutro() {
   outroVideo.pause();

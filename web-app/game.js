@@ -5,8 +5,19 @@
  * avoid the alien, and reach the exit before running out of lives or steps.
  * @module game
  */
+// Functional helpers
 
-"use strict";
+function samePos(a, b) {
+  "use strict";
+  return a.row === b.row && a.col === b.col;
+}
+
+const DIRECTION_OFFSETS = {
+  up:    { row: -1, col:  0 },
+  down:  { row:  1, col:  0 },
+  left:  { row:  0, col: -1 },
+  right: { row:  0, col:  1 }
+};
 
 // Type Definitions
 
@@ -28,7 +39,6 @@
  * @property {Array<Position>} walls            - List of wall positions
  * @property {Array<Position>} cookies          - Remaining cookie positions
  * @property {number}          collectedCookies - Number of cookies collected so far
- * @property {number}          frozenTurns      - Turns remaining that the alien is frozen
  * @property {number}          playerMoves      - Total number of moves the player has made
  * @property {number}          lives            - Remaining lives
  * @property {number}          steps            - Remaining steps
@@ -68,7 +78,10 @@
  * game.lives;            // 1
  * game.steps;            // 20
  */
-export function createGame(config = {}) {
+function createGame(config) {
+  "use strict";
+  const options = config || {};
+
   return {
     boardSize: 8,
 
@@ -91,10 +104,9 @@ export function createGame(config = {}) {
     ],
 
     collectedCookies: 0,
-    frozenTurns: 0,
     playerMoves: 0,
-    lives: config.lives ?? 3,
-    steps: config.steps ?? 30,
+    lives: options.lives !== undefined ? options.lives : 3,
+    steps: options.steps !== undefined ? options.steps : 30,
 
     status: "running"
   };
@@ -114,7 +126,8 @@ export function createGame(config = {}) {
  * game.status;           // "running"
  * game.lives;            // 3
  */
-export function resetGame() {
+function resetGame() {
+  "use strict";
   return createGame();
 }
 
@@ -141,16 +154,23 @@ export function resetGame() {
  * // Outside the board is not reachable
  * isValidMove(game, { row: -1, col: 0 }); // → false
  */
-export function isValidMove(game, { row, col }) {
+function isValidMove(game, pos) {
+  "use strict";
+  const row = pos.row;
+  const col = pos.col;
   const insideBoard =
     row >= 0 &&
     row < game.boardSize &&
     col >= 0 &&
     col < game.boardSize;
 
-  if (!insideBoard) return false;
+  if (!insideBoard) {
+    return false;
+  }
 
-  return !game.walls.some(wall => wall.row === row && wall.col === col);
+  return !game.walls.some(function (wall) {
+    return samePos(wall, { row, col });
+  });
 }
 
 /**
@@ -175,26 +195,239 @@ export function isValidMove(game, { row, col }) {
  * const blocked = movePlayer(game, "up");
  * blocked.player; // { row: 1, col: 0 } — player did not move
  */
-export function movePlayer(game, direction) {
-  if (game.status !== "running") return game;
+function movePlayer(game, direction) {
+  "use strict";
+  if (game.status !== "running") {
+    return game;
+  }
 
-  let newRow = game.player.row;
-  let newCol = game.player.col;
+  const offset = DIRECTION_OFFSETS[direction];
+  if (!offset) {
+    return game;
+  }
 
-  if (direction === "up")    newRow--;
-  if (direction === "down")  newRow++;
-  if (direction === "left")  newCol--;
-  if (direction === "right") newCol++;
+  const newPos = {
+    row: game.player.row + offset.row,
+    col: game.player.col + offset.col
+  };
 
-  if (!isValidMove(game, { row: newRow, col: newCol })) return game;
+  if (!isValidMove(game, newPos)) {
+    return game;
+  }
+
+  return Object.assign({}, game, {
+    player: newPos
+  });
+}
+
+/**
+ * Moves the alien one step closer to the player.
+ * The alien can pass through walls and moves along whichever axis
+ * has the greater distance to the player.
+ *
+ * Has no effect if the game has already ended.
+ *
+ * @param {Game} game - Current game state
+ * @returns {Game} Updated game state with the alien's new position
+ *
+ * @example
+ * // Alien moves one step closer to the player each time it acts
+ * const game = createGame();
+ * // alien starts at { row: 7, col: 0 }, player at { row: 1, col: 0 }
+ * const next = moveAlien(game);
+ * next.alien;    // { row: 6, col: 0 } — moved up toward the player
+ *
+ */
+function moveAlien(game) {
+  "use strict";
+  if (game.status !== "running") {
+    return game;
+  }
+
+  let newRow = game.alien.row;
+  let newCol = game.alien.col;
+
+  const rowDiff = game.player.row - game.alien.row;
+  const colDiff = game.player.col - game.alien.col;
+
+  if (Math.abs(rowDiff) >= Math.abs(colDiff)) {
+    newRow += Math.sign(rowDiff);
+  } else {
+    newCol += Math.sign(colDiff);
+  }
+
+  const insideBoard =
+    newRow >= 0 &&
+    newRow < game.boardSize &&
+    newCol >= 0 &&
+    newCol < game.boardSize;
+
+  if (!insideBoard) {
+    return game;
+  }
 
   return {
-    ...game,
-    player: { row: newRow, col: newCol }
+    boardSize: game.boardSize,
+    playerStart: game.playerStart,
+    player: game.player,
+    exit: game.exit,
+    walls: game.walls,
+    cookies: game.cookies,
+    collectedCookies: game.collectedCookies,
+    playerMoves: game.playerMoves,
+    lives: game.lives,
+    steps: game.steps,
+    status: game.status,
+    alien: { row: newRow, col: newCol }
   };
 }
 
-// Game Mechanics
+/**
+ * Picks up a cookie if the player is standing on one,
+ * adding it to the player's collection.
+ * Has no effect if there is no cookie at the player's current position.
+ *
+ * @param {Game} game - Current game state
+ * @returns {Game} Updated game state with one fewer cookie on the board
+ *                 and the collected count incremented,
+ *                 or the original state if no cookie was present
+ *
+ * @example
+ * // Player lands on a cookie square
+ * const withCookie = { ...createGame(), player: { row: 0, col: 1 } };
+ * const next = collectCookie(withCookie);
+ * next.collectedCookies; // 1
+ * next.cookies.length;   // 3 — one fewer remaining
+ *
+ * @example
+ * // No cookie at the player's position — state is unchanged
+ * const noCookie = collectCookie(createGame());
+ * noCookie.collectedCookies; // 0
+ */
+function collectCookie(game) {
+  "use strict";
+  const { kept, found } = game.cookies.reduce(function (acc, cookie) {
+    return samePos(cookie, game.player)
+      ? { kept: acc.kept, found: true }
+      : { kept: acc.kept.concat([cookie]), found: acc.found };
+  }, { kept: [], found: false });
+
+  if (!found) {
+    return game;
+  }
+
+  return Object.assign({}, game, {
+    cookies: kept,
+    collectedCookies: game.collectedCookies + 1
+  });
+}
+
+/**
+ * Checks whether the alien has caught the player.
+ * If so, the player loses one life and is returned to their starting position.
+ * If no lives remain, the game ends immediately with a loss.
+ * Has no effect if the player and alien are not on the same square.
+ *
+ * @param {Game} game - Current game state
+ * @returns {Game} Updated game state with one fewer life and the player
+ *                 repositioned, or the game ended if no lives remain,
+ *                 or the original state if no collision occurred
+ *
+ * @example
+ * // Player and alien share a square — player loses a life and respawns
+ * const caught = { ...createGame(), player: { row: 7, col: 0 } };
+ * const next = checkCollision(caught);
+ * next.lives;    // 2
+ * next.player;   // { row: 1, col: 0 } — back at start
+ *
+ * @example
+ * // Last life lost — game ends
+ * const lastLife = { ...createGame(), lives: 1, player: { row: 7, col: 0 } };
+ * const next = checkCollision(lastLife);
+ * next.status;   // "lose"
+ */
+function checkCollision(game) {
+  "use strict";
+  if (game.status !== "running") {
+    return game;
+  }
+  if (!samePos(game.player, game.alien)) {
+    return game;
+  }
+
+  const newLives = game.lives - 1;
+
+  if (newLives <= 0) {
+    return Object.assign({}, game, {
+      lives: newLives,
+      status: "lose"
+    });
+  }
+
+  return {
+    boardSize: game.boardSize,
+    alien: game.alien,
+    exit: game.exit,
+    walls: game.walls,
+    cookies: game.cookies,
+    collectedCookies: game.collectedCookies,
+    playerMoves: game.playerMoves,
+    steps: game.steps,
+    status: game.status,
+    lives: newLives,
+    playerStart: game.playerStart,
+    player: Object.assign({}, game.playerStart)
+  };
+}
+
+
+// Game State
+
+/**
+ * Returns `true` if the player has reached the exit.
+ *
+ * @param {Game} game - Current game state
+ * @returns {boolean} `true` if the player is on the exit square, `false` otherwise
+ *
+ * @example
+ * // Player has not yet reached the exit
+ * checkWin(createGame()); // → false
+ *
+ * @example
+ * // Player is on the exit square
+ * const atExit = { ...createGame(), player: { row: 0, col: 7 } };
+ * checkWin(atExit);       // → true
+ */
+function checkWin(game) {
+  "use strict";
+  return samePos(game.player, game.exit);
+}
+
+/**
+ * Returns `true` if the game is over due to the player having no lives
+ * or no steps remaining.
+ *
+ * @param {Game} game - Current game state
+ * @returns {boolean} `true` if the player has lost, `false` otherwise
+ *
+ * @example
+ * // Game still in progress
+ * checkLose(createGame()); // → false
+ *
+ * @example
+ * // No steps remaining
+ * const noSteps = { ...createGame(), steps: 0 };
+ * checkLose(noSteps);      // → true
+ *
+ * @example
+ * // No lives remaining
+ * const noLives = { ...createGame(), lives: 0 };
+ * checkLose(noLives);      // → true
+ */
+function checkLose(game) {
+  "use strict";
+  return game.lives <= 0 || game.steps <= 0;
+}
 
 /**
  * Advances the game by one full turn in response to the player's chosen direction.
@@ -224,23 +457,30 @@ export function movePlayer(game, direction) {
  * const atExit = nextTurn(nearExitGame, "right");
  * atExit.status; // "win"
  */
-export function nextTurn(game, direction) {
-  if (game.status !== "running") return game;
+function nextTurn(game, direction) {
+  "use strict";
+  if (game.status !== "running") {
+    return game;
+  }
 
   const moved = movePlayer(game, direction);
-  
+
   // 如果玩家没有移动（撞墙或出界），不消耗步数
   if (moved.player.row === game.player.row && moved.player.col === game.player.col) {
     return game;
   }
 
-  let state = { ...moved, playerMoves: moved.playerMoves + 1 };
+  let state = Object.assign({}, moved, {
+    playerMoves: moved.playerMoves + 1
+  });
 
   state = collectCookie(state);
   state = checkCollision(state);
 
   if (checkWin(state)) {
-    return { ...state, status: "win" };
+    return Object.assign({}, state, {
+      status: "win"
+    });
   }
 
   if (state.playerMoves % 2 === 0) {
@@ -248,196 +488,17 @@ export function nextTurn(game, direction) {
     state = checkCollision(state);
   }
 
-  state = { ...state, steps: state.steps - 1 };
+  state = Object.assign({}, state, {
+    steps: state.steps - 1
+  });
 
   if (checkLose(state)) {
-    return { ...state, status: "lose" };
+    return Object.assign({}, state, {
+      status: "lose"
+    });
   }
 
   return state;
-}
-
-/**
- * Moves the alien one step closer to the player.
- * The alien can pass through walls and moves along whichever axis
- * has the greater distance to the player.
- *
- * Has no effect if the game has already ended.
- *
- * @param {Game} game - Current game state
- * @returns {Game} Updated game state with the alien's new position
- *
- * @example
- * // Alien moves one step closer to the player each time it acts
- * const game = createGame();
- * // alien starts at { row: 7, col: 0 }, player at { row: 1, col: 0 }
- * const next = moveAlien(game);
- * next.alien;    // { row: 6, col: 0 } — moved up toward the player
- *
- */
-export function moveAlien(game) {
-  if (game.status !== "running") return game;
-
-  if (game.frozenTurns > 0) {
-    return { ...game, frozenTurns: game.frozenTurns - 1 };
-  }
-
-  let newRow = game.alien.row;
-  let newCol = game.alien.col;
-
-  const rowDiff = game.player.row - game.alien.row;
-  const colDiff = game.player.col - game.alien.col;
-
-  if (Math.abs(rowDiff) >= Math.abs(colDiff)) {
-    newRow += Math.sign(rowDiff);
-  } else {
-    newCol += Math.sign(colDiff);
-  }
-
-  const insideBoard =
-    newRow >= 0 &&
-    newRow < game.boardSize &&
-    newCol >= 0 &&
-    newCol < game.boardSize;
-
-  if (!insideBoard) return game;
-
-  return {
-    ...game,
-    alien: { row: newRow, col: newCol }
-  };
-}
-
-/**
- * Picks up a cookie if the player is standing on one,
- * adding it to the player's collection.
- * Has no effect if there is no cookie at the player's current position.
- *
- * @param {Game} game - Current game state
- * @returns {Game} Updated game state with one fewer cookie on the board
- *                 and the collected count incremented,
- *                 or the original state if no cookie was present
- *
- * @example
- * // Player lands on a cookie square
- * const withCookie = { ...createGame(), player: { row: 0, col: 1 } };
- * const next = collectCookie(withCookie);
- * next.collectedCookies; // 1
- * next.cookies.length;   // 3 — one fewer remaining
- *
- * @example
- * // No cookie at the player's position — state is unchanged
- * const noCookie = collectCookie(createGame());
- * noCookie.collectedCookies; // 0
- */
-export function collectCookie(game) {
-  const index = game.cookies.findIndex(
-    cookie =>
-      cookie.row === game.player.row &&
-      cookie.col === game.player.col
-  );
-
-  if (index === -1) return game;
-
-  return {
-    ...game,
-    cookies: game.cookies.filter((_, i) => i !== index),
-    collectedCookies: game.collectedCookies + 1
-  };
-}
-
-/**
- * Checks whether the alien has caught the player.
- * If so, the player loses one life and is returned to their starting position.
- * If no lives remain, the game ends immediately with a loss.
- * Has no effect if the player and alien are not on the same square.
- *
- * @param {Game} game - Current game state
- * @returns {Game} Updated game state with one fewer life and the player
- *                 repositioned, or the game ended if no lives remain,
- *                 or the original state if no collision occurred
- *
- * @example
- * // Player and alien share a square — player loses a life and respawns
- * const caught = { ...createGame(), player: { row: 7, col: 0 } };
- * const next = checkCollision(caught);
- * next.lives;    // 2
- * next.player;   // { row: 1, col: 0 } — back at start
- *
- * @example
- * // Last life lost — game ends
- * const lastLife = { ...createGame(), lives: 1, player: { row: 7, col: 0 } };
- * const next = checkCollision(lastLife);
- * next.status;   // "lose"
- */
-export function checkCollision(game) {
-  const caught =
-    game.player.row === game.alien.row &&
-    game.player.col === game.alien.col;
-
-  if (!caught) return game;
-
-  const newLives = game.lives - 1;
-
-  if (newLives <= 0) {
-    return { ...game, lives: newLives, status: "lose" };
-  }
-
-  return {
-    ...game,
-    lives: newLives,
-    player: { ...game.playerStart }
-  };
-}
-
-
-// Game State
-
-/**
- * Returns `true` if the player has reached the exit.
- *
- * @param {Game} game - Current game state
- * @returns {boolean} `true` if the player is on the exit square, `false` otherwise
- *
- * @example
- * // Player has not yet reached the exit
- * checkWin(createGame()); // → false
- *
- * @example
- * // Player is on the exit square
- * const atExit = { ...createGame(), player: { row: 0, col: 7 } };
- * checkWin(atExit);       // → true
- */
-export function checkWin(game) {
-  return (
-    game.player.row === game.exit.row &&
-    game.player.col === game.exit.col
-  );
-}
-
-/**
- * Returns `true` if the game is over due to the player having no lives
- * or no steps remaining.
- *
- * @param {Game} game - Current game state
- * @returns {boolean} `true` if the player has lost, `false` otherwise
- *
- * @example
- * // Game still in progress
- * checkLose(createGame()); // → false
- *
- * @example
- * // No steps remaining
- * const noSteps = { ...createGame(), steps: 0 };
- * checkLose(noSteps);      // → true
- *
- * @example
- * // No lives remaining
- * const noLives = { ...createGame(), lives: 0 };
- * checkLose(noLives);      // → true
- */
-export function checkLose(game) {
-  return game.lives <= 0 || game.steps <= 0;
 }
 
 /**
@@ -453,7 +514,6 @@ export function checkLose(game) {
  *   steps:            number,
  *   collectedCookies: number,
  *   remainingCookies: number,
- *   frozenTurns:      number,
  *   playerMoves:      number,
  *   status:           string
  * }} A snapshot of the current game state
@@ -466,7 +526,8 @@ export function checkLose(game) {
  * state.remainingCookies; // 4
  * state.collectedCookies; // 0
  */
-export function getGameState(game) {
+function getGameState(game) {
+  "use strict";
   return {
     player: game.player,
     alien: game.alien,
@@ -475,8 +536,21 @@ export function getGameState(game) {
     steps: game.steps,
     collectedCookies: game.collectedCookies,
     remainingCookies: game.cookies.length,
-    frozenTurns: game.frozenTurns,
     playerMoves: game.playerMoves,
     status: game.status
   };
 }
+
+export default Object.freeze({
+  createGame,
+  resetGame,
+  movePlayer,
+  nextTurn,
+  moveAlien,
+  collectCookie,
+  checkCollision,
+  checkWin,
+  checkLose,
+  getGameState,
+  isValidMove
+});

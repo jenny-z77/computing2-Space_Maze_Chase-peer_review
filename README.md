@@ -12,9 +12,10 @@ An API documentation page is also generated for the game module using JSDoc.
 
 - Grid size: 8 × 8
 - Player starts from a fixed position
-- Alien chases the player every 2 moves
+- Alien chases the player once every 2 player moves
 - Cookies can be collected to increase score
 - Player can win by reaching the exit (cookies are optional)
+- Default: 3 lives, 40 steps
 - Game ends if:
   - Player reaches the exit → Win
   - Lives reach 0 or steps run out → Lose
@@ -61,3 +62,46 @@ The API is documented using JSDoc and compiled into a documentation website.
 
 ```bash
 npm install
+```
+
+3. Generate API documentation (optional)
+
+```bash
+npm run docs
+```
+
+---
+
+## Running the Game
+
+Because `game.js` uses ES modules (`import`/`export`), the game **cannot** be opened by double-clicking `index.html`. It must be served over HTTP.
+
+**Option 1 — Node.js `http-server`:**
+
+```bash
+npx http-server .
+```
+
+Then open `http://localhost:8080/web-app/` in your browser.
+
+**Option 2 — VS Code Live Server extension:**
+
+Right-click `web-app/index.html` in VS Code and select **"Open with Live Server"**.
+
+---
+
+## Running Tests
+
+```bash
+npm test
+```
+
+Tests are written with Mocha and cover all exported functions in `game.js`.
+
+## Running the Linter
+
+```bash
+npm run lint
+```
+
+The linter checks the game module with JSLint using the project `.jslintrc` settings.

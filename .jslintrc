@@ -1,0 +1,7 @@
+{
+    "edition": "latest",
+    "es6": true,
+    "browser": true,
+    "white": true,
+    "maxerr": 100
+}

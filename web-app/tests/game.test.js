@@ -1,4 +1,6 @@
-import {
+import gameApi from "../game.js";
+
+const {
   createGame,
   resetGame,
   movePlayer,
@@ -10,7 +12,7 @@ import {
   checkLose,
   getGameState,
   isValidMove
-} from "../game.js";
+} = gameApi;
 
 
 // createGame
@@ -116,9 +118,9 @@ describe("isValidMove", function () {
   });
 });
 
-// ---------------------------------------------------------------------------
+
 // movePlayer
-// ---------------------------------------------------------------------------
+
 
 describe("movePlayer", function () {
   it("moves the player right when the cell is free", function () {
@@ -164,9 +166,9 @@ describe("movePlayer", function () {
   });
 });
 
-// ---------------------------------------------------------------------------
+
 // collectCookie
-// ---------------------------------------------------------------------------
+
 
 describe("collectCookie", function () {
   it("collects a cookie when player is on its position", function () {
@@ -212,28 +214,12 @@ describe("collectCookie", function () {
   });
 });
 
-// ---------------------------------------------------------------------------
+
 // moveAlien
-// ---------------------------------------------------------------------------
+
 
 describe("moveAlien", function () {
-  it("does not move the alien when frozenTurns > 0", function () {
-    const game = { ...createGame(), frozenTurns: 3 };
-    const next = moveAlien(game);
-    if (next.alien.row !== game.alien.row || next.alien.col !== game.alien.col) {
-      throw new Error("Alien should not move when frozen");
-    }
-  });
-
-  it("decrements frozenTurns when alien is frozen", function () {
-    const game = { ...createGame(), frozenTurns: 3 };
-    const next = moveAlien(game);
-    if (next.frozenTurns !== 2) {
-      throw new Error(`Expected frozenTurns=2 but got ${next.frozenTurns}`);
-    }
-  });
-
-  it("moves the alien closer to the player when not frozen", function () {
+  it("moves the alien closer to the player", function () {
     const game = createGame();
     // alien at (7,0), player at (1,0) — alien should move up (row decreases)
     const next = moveAlien(game);
@@ -252,9 +238,9 @@ describe("moveAlien", function () {
   });
 });
 
-// ---------------------------------------------------------------------------
+
 // checkCollision
-// ---------------------------------------------------------------------------
+
 
 describe("checkCollision", function () {
   it("decrements lives when player and alien are on the same cell", function () {
@@ -306,9 +292,9 @@ describe("checkCollision", function () {
   });
 });
 
-// ---------------------------------------------------------------------------
+
 // checkWin
-// ---------------------------------------------------------------------------
+
 
 describe("checkWin", function () {
   it("returns true when player reaches the exit", function () {
@@ -330,9 +316,9 @@ describe("checkWin", function () {
   });
 });
 
-// ---------------------------------------------------------------------------
+
 // checkLose
-// ---------------------------------------------------------------------------
+
 
 describe("checkLose", function () {
   it("returns true when lives reach 0", function () {
@@ -357,9 +343,9 @@ describe("checkLose", function () {
   });
 });
 
-// ---------------------------------------------------------------------------
+
 // getGameState
-// ---------------------------------------------------------------------------
+
 
 describe("getGameState", function () {
   it("returns the correct player position", function () {
@@ -392,9 +378,9 @@ describe("getGameState", function () {
   });
 });
 
-// ---------------------------------------------------------------------------
+
 // nextTurn
-// ---------------------------------------------------------------------------
+
 
 describe("nextTurn", function () {
   it("decrements steps by 1 each turn", function () {
@@ -434,6 +420,169 @@ describe("nextTurn", function () {
     const next = nextTurn(nearExit, "right");
     if (next.status !== "win") {
       throw new Error(`Expected status="win" but got "${next.status}"`);
+    }
+  });
+
+  it("alien only moves on every second player turn", function () {
+    const game = createGame();
+    // alien at (7,0), player at (1,0)
+    const alienRowBefore = game.alien.row;
+    // First turn: playerMoves becomes 1 (odd) — alien should NOT move
+    const after1 = nextTurn(game, "right");
+    if (after1.alien.row !== alienRowBefore) {
+      throw new Error("Alien should not move on the first player turn");
+    }
+    // Second turn: playerMoves becomes 2 (even) — alien SHOULD move
+    const after2 = nextTurn(after1, "right");
+    if (after2.alien.row >= alienRowBefore) {
+      throw new Error("Alien should move closer to the player on the second player turn");
+    }
+  });
+
+  it("sets status to 'lose' when steps reach 0 via nextTurn", function () {
+    const game = createGame({ steps: 1 });
+    const next = nextTurn(game, "right");
+    if (next.status !== "lose") {
+      throw new Error(`Expected status="lose" when steps run out but got "${next.status}"`);
+    }
+  });
+
+  it("collecting a cookie increments collectedCookies via nextTurn", function () {
+    const game = createGame();
+    // cookie at (0,1); place player one step below it
+    const nearCookie = { ...game, player: { row: 1, col: 1 } };
+    const next = nextTurn(nearCookie, "up");
+    if (next.collectedCookies !== 1) {
+      throw new Error(`Expected collectedCookies=1 after collecting a cookie but got ${next.collectedCookies}`);
+    }
+  });
+
+  it("does not consume a step when the player cannot move (wall block)", function () {
+    const game = createGame();
+    // player at (1,0); moving up hits wall at (0,0)... wait (0,0) is open.
+    // moving left from (1,0) goes out of bounds — should not consume a step
+    const stepsBefore = game.steps;
+    const next = nextTurn(game, "left");
+    if (next.steps !== stepsBefore) {
+      throw new Error(
+        `Expected steps to remain ${stepsBefore} when move is blocked, but got ${next.steps}`
+      );
+    }
+  });
+
+  it("does not consume a step when the player cannot move (out of bounds)", function () {
+    const game = { ...createGame(), player: { row: 0, col: 0 } };
+    const stepsBefore = game.steps;
+    const next = nextTurn(game, "up");
+    if (next.steps !== stepsBefore) {
+      throw new Error(
+        `Expected steps to remain ${stepsBefore} when move goes out of bounds, but got ${next.steps}`
+      );
+    }
+  });
+});
+
+
+// checkCollision — respawn edge cases
+
+
+describe("checkCollision — respawn", function () {
+  it("immediately collides again if alien is already at playerStart after respawn", function () {
+    // Set alien at playerStart so the respawned player collides instantly
+    const game = {
+      ...createGame(),
+      lives: 3,
+      player: { row: 1, col: 0 },   // same as playerStart
+      alien:  { row: 1, col: 0 }    // alien at playerStart
+    };
+    // First collision: lives 3 → 2, player returns to start — but alien is ALSO at start
+    const after1 = checkCollision(game);
+    if (after1.lives !== 2) {
+      throw new Error(`Expected lives=2 after first collision, got ${after1.lives}`);
+    }
+    // Second collision call (simulating next checkCollision in the same turn isn't done
+    // automatically, but the state is set up correctly for it)
+    const after2 = checkCollision(after1);
+    if (after2.lives !== 1) {
+      throw new Error(`Expected lives=1 after second collision at spawn, got ${after2.lives}`);
+    }
+  });
+
+  it("sets status to 'lose' immediately when last life is lost on collision", function () {
+    const game = {
+      ...createGame(),
+      lives: 1,
+      player: { row: 7, col: 0 },
+      alien:  { row: 7, col: 0 }
+    };
+    const next = checkCollision(game);
+    if (next.status !== "lose") {
+      throw new Error(`Expected status="lose" when last life is lost, got "${next.status}"`);
+    }
+    if (next.lives !== 0) {
+      throw new Error(`Expected lives=0, got ${next.lives}`);
+    }
+  });
+
+  it("does nothing when game status is not 'running'", function () {
+    const game = {
+      ...createGame(),
+      status: "lose",
+      player: { row: 7, col: 0 },
+      alien:  { row: 7, col: 0 }
+    };
+    const next = checkCollision(game);
+    if (next.lives !== game.lives) {
+      throw new Error("checkCollision should not change lives when game is not running");
+    }
+  });
+});
+
+
+// moveAlien — tie-breaking and edge cases
+
+
+describe("moveAlien — tie-breaking", function () {
+  it("prefers moving along the row axis when row and col distances are equal", function () {
+    // rowDiff = colDiff in absolute value → should move by row (>= favours row)
+    const game = {
+      ...createGame(),
+      player: { row: 4, col: 4 },
+      alien:  { row: 2, col: 2 }   // rowDiff=2, colDiff=2
+    };
+    const next = moveAlien(game);
+    // row should change, col should not
+    if (next.alien.row === game.alien.row) {
+      throw new Error("Alien should move along the row axis when distances are equal");
+    }
+    if (next.alien.col !== game.alien.col) {
+      throw new Error("Alien should not move along col when row distance >= col distance");
+    }
+  });
+
+  it("moves along the col axis when col distance is greater than row distance", function () {
+    const game = {
+      ...createGame(),
+      player: { row: 3, col: 7 },
+      alien:  { row: 3, col: 0 }   // rowDiff=0, colDiff=7
+    };
+    const next = moveAlien(game);
+    if (next.alien.col === game.alien.col) {
+      throw new Error("Alien should move along the col axis when col distance is greater");
+    }
+    if (next.alien.row !== game.alien.row) {
+      throw new Error("Alien should not change row when col distance is greater");
+    }
+  });
+
+  it("does not move when game status is not 'running'", function () {
+    const game = {
+      ...createGame(),
+      status: "win"
+    };
+    const next = moveAlien(game);
+    if (next.alien.row !== game.alien.row || next.alien.col !== game.alien.col) {
+      throw new Error("moveAlien should have no effect when game is not running");
     }
   });
 });

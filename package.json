@@ -3,18 +3,17 @@
   "type": "module",
   "version": "1.0.0",
   "description": "",
-  "main": "web-app/Module.js",
+  "main": "web-app/game.js",
   "author": "",
   "license": "ISC",
-  "dependencies": {
-    "ramda": "^0.32.0"
-  },
   "devDependencies": {
     "docdash": "^2.0.2",
+    "jslint": "^0.12.1",
     "mocha": "^11.7.5"
   },
   "scripts": {
     "docs": "jsdoc -c jsdoc.json",
+    "lint": "jslint web-app/game.js",
     "test": "mocha --experimental-vm-modules web-app/tests/game.test.js"
   }
 }
